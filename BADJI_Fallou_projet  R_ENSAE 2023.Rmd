@@ -1,0 +1,302 @@
+---
+title: "Untitled"
+author: "Badji"
+date: "`r Sys.Date()`"
+output: 
+  pdf_document: 
+    toc: yes
+  html_document: 
+    toc: yes
+    fig_caption: yes
+header-includes:
+  \usepackage{pdfpages}
+  \usepackage{graphicx}
+---
+```{r echo=TRUE, message=TRUE, warning=TRUE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+\includepdf{pagedegarde.pdf}
+# Introduction
+
+L'objectif de ce projet est que nous appliquions les outils que nous avez étudiés dans le cours du logiciel statistique R, dans le cas d'une étude de cas réelle. Le devoir est à faire seul et à rendre au format .docx ou .pdf. Les codes que nous utiliserons pour répondre aux questions seront à intégrer dans le corps de notre rapport. Nous nous penchons sur R Markdown pour mener à bien notre projet. En ce qui concerne l'organisation du travail à rendre, nous nous inspirerez de la façon dont est organisé le sujet du projet. 
+# Partie 1 
+Cette enquête vise à identifier et à caractériser des bioénergies durables pour les petites et moyennes entreprises (PME) agroalimentaires d'Afrique de l'Ouest. 
+## Préparation des données 
+Le fichier Base_Partie1.xlsx contient 250 observations et 33 variables. La première colonne key correspond à l'identifiant de la PME. 
+## Importation et mise en forme 
+Nous commençons par importer la base "Base_Partie1.xlsx" qui est de type Excel.
+
+```{r echo = TRUE, message=FALSE, warning=FALSE, include=TRUE}
+library(readxl) # pour importer les fichiers de types Excel
+# importation de la base dans un objet nommé projet de type dataframe
+projet <- as.data.frame(readxl::read_excel("Base_Partie 1.xlsx")) 
+```
+
+Faisons un tableau qui resume les valeurs manquantes par variable
+
+```{r echo=TRUE, message=FALSE, warning=FALSE, include=TRUE}
+#On recupère le nombre de valeurs manquantes pour chaque variable 
+t <- sapply(projet,function(x) sum(is.na(x)))
+#On les range dans une matrice de taille (11,3) pour former un tableau qui ne prend pas de longueur
+Nbre_NA <- matrix(t, ncol= 11)
+# On prend les noms des variables
+Var <- matrix(names(projet), ncol = 11)
+# On affecte chaque valeurs à son nombre de valeurs manquantes
+data.frame(Var[1,], Nbre_NA[1,], Var[2,], Nbre_NA[2,], Var[3,], Nbre_NA[3,])
+```
+
+Vérifions s'il y a des valeurs manquantes pour la variable key dans la base projet:
+
+```{r echo = TRUE, message=FALSE, warning=FALSE, include=TRUE}
+print("Le nombre de valeurs manquantes pour la variable key est :")
+sum(is.na(projet$key)) #somme des valeurs manquantes sur la variable key
+```
+
+##Création de variables
+
+Rénommons la variable q2 en departement et la variable q23 en sexe. Puis créons la variable sexe_2 qui vaut 1 si sexe égale à Femme et 0 sinon. ENsuite, Créons un data.frame nommé langues qui prend les variables key et les variables concernant les langues.
+
+```{r echo = TRUE, message=FALSE, warning=FALSE, include=TRUE}
+library(dplyr) #pour apporter des modifications sur la base comme changer les noms des variables on selectionner un ensemble de variables.
+# On selectionne les variables à renommer en leur donnant directement et respectivement leurs nouveaux noms
+projet <- projet %>% dplyr::rename(region = q1, departement = q2, sexe = q23)
+#On crée une nouvelle variable sexe_2 qu'on ralie à la base
+projet <- dplyr::mutate(projet,sexe_2 = ifelse(sexe == "Femme", "1", "0"))
+#On merge les dataframes avec la fonction merge.data.frame
+langues <- merge.data.frame(projet$key, projet %>% dplyr::select(contains("q24a_"))) #On choisit les variables contenant "q24a_" avec la fonction contains dans select
+head(langues)
+```
+
+Créons une variable parle qui est égale au nombre de langue parlée par le dirigeant de la PME. Sélectionnons uniquement les variables key et parle, l'objet de retour sera langues. Et enfin, mergeons les data.frame projet et langues.
+
+```{r echo = TRUE, message=FALSE, warning=FALSE, include=TRUE}
+#sommer les lignes des variables langues puisse qu'elles sont dichotomique
+parle <- rowSums(projet %>% dplyr::select(contains("q24a_")))
+# Nombre de NA dans key
+langues <- data.frame(key = projet$key,parle)
+#Merger le projet
+projet <- dplyr::left_join(projet,langues, by = "key")
+head(projet)
+```
+
+# Analyses descriptives
+
+La répartion des PME:
+
+```{r echo = TRUE, message=FALSE, warning=FALSE, include=TRUE}
+library(gtsummary) #Pour manipuler les tableaux
+#Répartition des chef des PME suivant les variables citées dans le "include"
+projet %>% gtsummary::tbl_summary(include = c(sexe, q25, q12, q81))
+```
+
+```{r echo = TRUE, message=FALSE, warning=FALSE, include=TRUE}
+#On selectionne des variables avec select de dplyr et on les summarise avec la variable sexe, onaffiche les pourcentage par ligne
+projet %>% dplyr::select(sexe, q12, q25, q81) %>% gtsummary::tbl_summary(by = sexe, percent = "row")
+```
+
+
+# Cartographie
+
+```{r echo = TRUE, message=FALSE, warning=FALSE, include=TRUE}
+library(ggplot2) # permet d'afficher des graphics
+library(sf) # permet de manipuler des données spatiales
+
+#Transformation de la base en données spatiales
+projet_map<-st_as_sf(projet,coords= c("gps_menlongitude","gps_menlatitude"),crs=4326)
+ #charger les données du Séégal
+senegal <- st_read("Limite_Région.shp")
+#Nommer le nom des regions en region 
+names(senegal)[1] <- "region"
+ggplot()+ #tracer
+  geom_sf(data=senegal,fill="#D1914D",color="white")+ #La carte du Sénégal
+  geom_sf(data=projet_map,aes(color=sexe),size=1)+ #Placer les points de la base
+  geom_sf_text(data=senegal,aes(label=region),size=2.5)+ #labeliser les regions
+  scale_color_manual(values = c("black", "blue")) + #Couleurs des sexes
+ theme_void()+
+ theme(legend.position = "right")+ #position de la légende
+ labs(title="Répartion des chefs des PME suivant sexe",color="sexe") #titre
+```
+
+```{r echo = TRUE, message=FALSE, warning=FALSE, include=TRUE}
+ggplot()+ #Tracer le graphic
+  geom_sf(data=senegal,fill="#D1914D",color="white")+ #tracer la carte du Senegal
+  geom_sf(data=projet_map,aes(color=q25),size=1)+ #placer les points de la base
+  geom_sf_text(data=senegal,aes(label=region),size=2.5)+ #label sur les region
+  scale_color_manual(values = c("black", "blue", "red", "yellow")) + #Couleurs des niveaux d'instruction
+ theme_void()+
+ theme(legend.position = "right")+
+ labs(title="Répartion des chefs des PME suivant le Niveau d'instruction",color="Niveau d'instructrion")
+```
+##Partie2
+•	Renommons la variable “country_destination” en “destination” et définissons les valeurs négatives comme manquantes.
+•	Créons une nouvelle variable contenant des tranches d’âge de 5 ans en utilisant la variable “age”.
+•	Créons une nouvelle variable contenant le nombre d’entretiens réalisés par chaque agent recenseur.
+•	Créons une nouvelle variable qui affecte aléatoirement chaque répondant à un groupe de traitement (1) ou de controle (0).
+```{r echo = TRUE, message=FALSE, warning=FALSE, include=TRUE}
+#Importation de la fichier Base_Partie 2.xlsx qui est de type excel
+#Data se trouve à la feuille 1 du fichier
+data <- read_excel("Base_Partie 2.xlsx", sheet = 1) 
+#District se trouve à la feuille 2 du fichier
+district  <- read_excel("Base_Partie 2.xlsx", sheet = 2)
+#Codebook se trouve à la feuille 3 du fichier
+codebook <- read_excel("Base_Partie 2.xlsx", sheet = 3)
+#Renommons les variables comme on avait fait avant
+data <- data %>%dplyr::rename(destination = country_destination)
+#Transformation des valeurs négatives en NA 
+data[data < 0] <- NA
+head(data)
+```
+
+```{r echo = TRUE, message=FALSE, warning=FALSE, include=TRUE}
+#classe d'age
+cut(data$age, c(15, 20, 25, 30, 35, 40, 45), right = FALSE)
+```
+
+```{r echo = TRUE, message=FALSE, warning=FALSE, include=TRUE}
+#déterminer le nombre d'entretiens par enqueteur par groupby
+nb_agents <- data %>%
+  group_by(enumerator) %>%
+  dplyr::summarise(Nombre_entretiens = n())
+nb_agents
+```
+
+```{r echo = TRUE, message=FALSE, warning=FALSE, include=TRUE}
+#Création de valeurs aléatoires entre 0 et 1 pour les enquétants
+data$sample <- sample(x = c(0,1), size = length(data$id), replace = TRUE)
+data$sample
+```
+
+```{r echo = TRUE, message=FALSE, warning=FALSE, include=TRUE}
+#Création de la variable population
+data$population <- district[data$district, 2]
+data$population
+```
+
+
+```{r echo = TRUE, message=FALSE, warning=FALSE, include=TRUE}
+#Durée des entretiens
+data$duree <- data$endtime-data$starttime
+#Durée totale par enquéteur
+duree_entretien <- data %>%
+  group_by(enumerator) %>%
+  dplyr::summarise(sum(duree))
+```
+
+```{r echo = TRUE, message=FALSE, warning=FALSE, include=TRUE}
+#Durée moyenne par enquéteur
+print("La durée moyenne par enquéteur est : ")
+duree_moyen_entretien <- duree_entretien[2] /nb_agents[2]
+```
+
+```{r echo = TRUE, message=FALSE, warning=FALSE, include=TRUE}
+#renommer les variables avec le prefixe endline_
+for (i in 1:length(colnames(data))){
+  colnames(data)[i] <- paste("endline_",colnames(data)[i], sep = "")
+}
+```
+
+```{r echo = TRUE, message=FALSE, warning=FALSE, include=TRUE}
+#Tableau récapitilatif contenant l'age moyen et le nombre d'enfants moyen par strict
+data %>%
+  group_by(endline_district) %>%
+  dplyr::summarise(mean(endline_age), mean(endline_children_num))
+```
+
+```{r echo = TRUE, message=FALSE, warning=FALSE, include=TRUE}
+#Test de Student sur les variables age et sexe 
+t.test(data$endline_age ~ data$endline_sex, data = data[-46,])
+```
+
+```{r echo = TRUE, message=FALSE, warning=FALSE, include=TRUE}
+#Nuage de point de l'age en fonction du sexe
+ggplot(data[-46,]) +
+  aes(x = endline_children_num, y = endline_age) +
+  geom_point() +
+  xlab("Nombre d'enfants") +
+  ylab("Âge")
+```
+
+# Partie 3: Shiny
+```{r echo = TRUE, message=FALSE, warning=FALSE, include=TRUE}
+#    http://shiny.rstudio.com/
+#
+library(sp)
+library(ggplot2)
+library(dplyr)
+library(shiny)
+library(leaflet)
+library(rnaturalearth)
+library(rnaturalearthdata)
+
+# Charger les données géographiques de l'Afrique de l'Ouest
+ne_countries_data <- ne_countries(scale = "medium", continent = "Africa")
+west_africa <- subset(ne_countries_data, subregion == "Western Africa")
+
+# Charger les données de base en dehors de la fonction server
+base <- read.csv("ACLED-Western_Africa.csv")
+
+ui <- fluidPage(
+  # titre de l'application
+  titlePanel("shiny map"),
+  
+  # Sidebar with a slider input for number of bins 
+  sidebarLayout(
+    sidebarPanel(
+      selectInput(
+        inputId = "evenement",
+        label = "Sélectionnez un evenement",
+        choices = c(unique(base$type)),
+        selected = "Protests",
+        multiple = TRUE
+      
+      ),
+      selectInput(
+        inputId = "pays",
+        label = "Sélectionnez un pays",
+        choices = c(unique(base$pays)),
+        selected = c(unique(base$pays))[sample(1:length(unique(base$pays)), 1)],
+        multiple = TRUE
+     
+      ),
+      selectInput(
+        inputId = "annee",
+        label = "Sélectionnez une annee",
+        choices = c(unique(base$annee)),
+        selected = "2023",
+        multiple = TRUE
+      ),
+      
+     
+        
+    ),
+    # Show a plot of the generated distribution
+    mainPanel(
+      leafletOutput(outputId = "map", width = "100%", height = "720px")
+    )
+  )
+)
+
+server <- function(input, output, session) {
+  filtered_data <- reactive({
+    subset(base, pays %in% input$pays & type %in% input$evenement & annee %in% input$annee)
+  })
+  
+  output$map <- renderLeaflet({
+    filtered_west_africa <- west_africa[west_africa$name %in% input$pays]
+    
+    leaflet() %>%
+      addProviderTiles(providers$Stamen.Toner) %>%
+      addPolygons(data = ne_countries(type = "countries", country = input$pays), fillColor = "lightblue", color = "gray", fillOpacity = 0.6) %>%
+ 
+    
+      addCircleMarkers(data = filtered_data(),
+                       lat = ~latitude,
+                       lng = ~longitude,
+                       radius = 3,
+                       opacity = 0.7)
+  })
+}
+
+shinyApp(ui = ui, server = server)
+```
